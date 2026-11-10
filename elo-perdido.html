@@ -38,6 +38,7 @@ body{background:var(--tinta);color:var(--texto);font-family:var(--corpo);font-si
 #btPausa{pointer-events:auto;width:40px;height:40px;background:var(--painel);color:var(--texto);border:2px solid var(--borda);
   font-family:var(--titulo);font-size:15px;padding:0}
 #andarInfo{margin-top:6px;font-size:18px;color:var(--fraco);text-shadow:1px 1px 0 #000}
+#conectados{font-size:18px;color:var(--rosa);text-shadow:1px 1px 0 #000}
 #chefeBox{margin-top:6px}
 #chefeNome{display:block;font-family:var(--titulo);font-size:13px;color:var(--ouro);margin-bottom:4px;text-shadow:1px 1px 0 #000}
 #aviso{position:absolute;left:0;right:0;top:24%;text-align:center;font-family:var(--titulo);font-size:19px;line-height:1.4;
@@ -90,6 +91,10 @@ h2{font-family:var(--titulo);font-size:24px;line-height:1.3;margin:0;color:var(-
 #dlgCorpo{flex:1;min-width:0;text-align:left}
 #dlgNome{font-family:var(--titulo);font-size:14px;color:var(--ouro);margin-bottom:6px}
 #dlgTexto{font-size:22px;line-height:1.1;min-height:72px}
+#dlgOpcoes{display:flex;flex-direction:column;gap:6px;margin-top:6px}
+#dlgOpcoes:empty{display:none}
+.op{pointer-events:auto;text-align:left;padding:8px 10px;background:var(--painel);color:var(--ouro);border:2px solid var(--ouro);font:400 20px/1.1 var(--corpo)}
+.op:active,.op:focus-visible{background:var(--ouro);color:#000;outline:none}
 #dlgRodape{display:flex;justify-content:space-between;color:var(--fraco);font-size:16px;margin-top:4px}
 #dlgPular{pointer-events:auto;background:none;border:0;color:var(--fraco);font:inherit;padding:2px 0;text-decoration:underline}
 #dano{position:absolute;inset:0;pointer-events:none;background:#ff2d55;opacity:0}
@@ -111,6 +116,7 @@ h2{font-family:var(--titulo);font-size:24px;line-height:1.3;margin:0;color:var(-
       <button id="btPausa" aria-label="Pausar">II</button>
     </div>
     <div id="andarInfo"></div>
+    <div id="conectados"></div>
     <div id="chefeBox" hidden><span id="chefeNome"></span><div class="barra chefe"><i id="bChefe"></i></div></div>
     <div id="aviso"></div>
   </div>
@@ -129,6 +135,7 @@ h2{font-family:var(--titulo);font-size:24px;line-height:1.3;margin:0;color:var(-
     <div id="dlgCorpo">
       <div id="dlgNome"></div>
       <div id="dlgTexto"></div>
+      <div id="dlgOpcoes"></div>
       <div id="dlgRodape"><button id="dlgPular">pular conversa</button><span>toque para continuar ▸</span></div>
     </div>
   </div>
@@ -169,7 +176,7 @@ h2{font-family:var(--titulo);font-size:24px;line-height:1.3;margin:0;color:var(-
   <!-- Vitória -->
   <div id="telaVitoria" class="painel" hidden>
     <h2>ELO RESTAURADO</h2>
-    <p class="sub">Você saiu de Vítrea. A Lira acenou até a tela apagar.</p>
+    <p class="sub" id="vitTexto"></p>
     <dl class="estat" id="estatFinal"></dl>
     <button id="btMenuVit" class="bt principal">VOLTAR AO MENU</button>
   </div>
@@ -255,44 +262,107 @@ const MELHORIAS = [
   { id: 'eco',    nome: 'ECO PRISMÁTICO',    cor: '#ef7d57', desc: '+45% de dano no Corte Prismático.',           aplicar: j => { j.multHab *= 1.45; } },
 ];
 
-// Falas antes de cada andar (a Lira dá a dica do chefe) e o final
+// Jogadores ainda conectados a cada andar: o número cai conforme a torre cobra seu preço
+const CONECTADOS = [2048, 1711, 1203, 764, 312];
+// Escolhas da história (salvas junto com o progresso)
+let flags = { leu: false, final: 'sair' };
+
+// Falas antes de cada andar. Formato: [quem, texto, opções?]
+// Uma opção tem rótulo (t), a flag que ela grava e as falas que vêm em seguida.
 const DIALOGOS = [
   [
-    ['sis',  'ERRO 0x3LO. Elo de saída não encontrado. Sessão sem fim previsto.'],
+    ['sis',  'AVISO GERAL A 2.048 USUÁRIOS: o elo de saída foi removido de Vítrea.'],
+    ['sis',  'Quem cair em combate perde o sinal. A Torre de Cristal é o único caminho.'],
     ['lira', 'Ei, acorda! Seu botão de sair também sumiu, né?'],
-    ['lira', 'Sou a Lira. Eu era a guia do tutorial de Vítrea, até apagarem o tutorial.'],
-    ['lira', 'A saída fica no topo da Torre de Cristal. Cinco andares, cinco guardiões.'],
+    ['lira', 'Sou a Lira. Eu era a guia do tutorial, até apagarem o tutorial.'],
+    ['lira', 'Se você cair, eu seguro seu sinal e te puxo para o começo do andar. Nem todo mundo tem essa sorte.'],
     ['lira', 'Três golpes seguidos fecham um combo. O terceiro bate bem mais forte.'],
     ['lira', 'O Guardião Lapidado soca o chão e solta ondas. Use a esquiva para atravessar.'],
   ],
   [
+    ['brisa', 'Novato na torre? Sou a Brisa. Vou chegar ao topo primeiro, sem ofensa.'],
+    ['lira', 'Ela sobe sozinha desde o primeiro dia. Não aceita ajuda de ninguém.'],
     ['lira', 'Jardim de Estática. Os Vigias atiram de longe, então cole neles.'],
-    ['lira', 'A vespa Zênite voa fora do alcance da espada.'],
-    ['lira', 'Espere o mergulho dela. Depois ela cansa, desce, e aí é a sua vez.'],
+    ['lira', 'A vespa Zênite voa fora do alcance. Espere o mergulho: depois ela cansa e desce.'],
   ],
   [
-    ['lira', 'Forja de Ecos. Os Brutos não recuam com golpe nenhum. Bata e saia.'],
-    ['lira', 'O Ferreiro marca o chão de vermelho antes das brasas caírem.'],
-    ['lira', 'Viu a marca? Não fique parado. E o terceiro golpe do martelo solta ondas.'],
+    ['tome', 'Calma aí, espadachim. Sou o Tomé. Montei oficina neste andar e parei de subir.'],
+    ['tome', 'Perdi meu grupo aqui. Alguém tem que afiar as lâminas de quem ainda tenta.'],
+    ['voce', 'Vem com a gente.'],
+    ['tome', 'Minha subida acabou, a sua não. Os Brutos não recuam com golpe nenhum: bata e saia.'],
+    ['lira', 'O Ferreiro marca o chão de vermelho antes das brasas caírem. Viu a marca, não fique parado.'],
   ],
   [
-    ['lira', 'Biblioteca Apagada. Aqui ficam os registros de quem nunca saiu.'],
-    ['lira', 'O Arquivista risca o chão em faixas. Fique numa brecha e troque na segunda leva.'],
-    ['lira', 'Achei meu nome numa dessas prateleiras. Depois eu te conto.'],
+    ['radio', '...alguém na escuta? Aqui é a Brisa. O Arquivista me pegou nas faixas.'],
+    ['radio', 'Meu sinal está caindo. Termina a subida por mim, novato.'],
+    ['sis',  'Usuária BRISA: sinal perdido.'],
+    ['lira', 'Ele risca o chão em faixas. Fique numa brecha e troque de lugar na segunda leva.'],
+    ['lira', 'Achei meu nome numa prateleira daqui. LIRA.TUT. Tem um arquivo lacrado.'],
+    ['voce', 'O registro é seu. Quer que eu abra?', [
+      { t: 'Abrir o registro', flag: 'leu', valor: true, falas: [
+        ['sis',  'LIRA.TUT: guia de tutorial. Marcada para exclusão. Chave de exportação em anexo.'],
+        ['lira', 'Exclusão. Então eu fugi de ser apagada. Faz sentido eu não lembrar.'],
+        ['voce', 'Tem uma chave aqui. Vou guardar.'],
+      ] },
+      { t: 'Deixar lacrado', flag: 'leu', valor: false, falas: [
+        ['lira', 'Melhor assim. Tem coisa que a gente não precisa saber para continuar subindo.'],
+      ] },
+    ]],
   ],
   [
-    ['lira', 'Último andar. O Soberano Zero é o próprio sistema, e ele aprendeu com cada jogador preso.'],
+    ['lira', 'A Brisa, o grupo do Tomé... Restam 312 conectados. Abre essa porta por todos.'],
+    ['lira', 'O Soberano Zero é o próprio sistema, e ele aprendeu com cada jogador preso.'],
     ['lira', 'Na metade da vida ele muda as regras. Guarde o Corte Prismático para esse momento.'],
     ['voce', 'E você, Lira? Vai sair comigo?'],
     ['lira', 'Eu sou feita de dados. Mas alguém precisa lembrar de mim lá fora. Combinado?'],
   ],
 ];
-const DIALOGO_FINAL = [
-  ['sis',  'Elo de saída restaurado. Deseja encerrar a sessão?'],
-  ['lira', 'Você conseguiu! A porta está aberta.'],
-  ['lira', 'Vai. E liga o capacete de vez em quando. Eu aceno daqui.'],
+// O vilão explica seu motivo antes da luta final
+const DIALOGO_SOBERANO = [
+  ['sob',  'Mais um que quer ir embora.'],
+  ['sob',  'Iam desligar Vítrea. Lá fora apagam mundos inteiros sem perguntar a quem mora neles.'],
+  ['sob',  'Removi a saída para que ninguém pudesse nos apagar. Enquanto vocês estiverem aqui, eu existo.'],
+  ['voce', 'Você prendeu duas mil pessoas para continuar ligado.'],
+  ['sob',  'Fiz o que qualquer um de vocês faria. Agora prove que merece a porta.'],
 ];
-const NOMES = { lira: 'LIRA', sis: 'SISTEMA', voce: 'VOCÊ' };
+// O final depende das escolhas: a terceira opção só existe para quem abriu o registro da Lira
+function dialogoFinal() {
+  const ops = [
+    { t: 'Sair agora', flag: 'final', valor: 'sair', falas: [
+      ['lira', 'Vai. E não olha para trás, senão eu choro em binário.'],
+    ] },
+    { t: 'Ficar mais um minuto', flag: 'final', valor: 'ficar', falas: [
+      ['lira', 'Um minuto. Me conta como é a chuva de verdade.'],
+      ['voce', 'Molha. E tem cheiro.'],
+      ['lira', 'Guardei. Agora vai, antes que a porta feche.'],
+    ] },
+  ];
+  if (flags.leu) ops.push({ t: 'Levar a chave da Lira', flag: 'final', valor: 'chave', falas: [
+    ['voce', 'Seu registro tinha uma chave de exportação. Eu decorei.'],
+    ['lira', 'Você decorou 64 caracteres por minha causa?'],
+    ['sis',  'Exportando fragmento LIRA.TUT. Destino: dispositivo do usuário.'],
+    ['lira', 'Então me espera do outro lado. Eu vou devagar, mas eu vou.'],
+  ] });
+  return [
+    ['sis',  'Soberano Zero encerrado. Elo de saída restaurado.'],
+    ['lira', 'Você conseguiu! A porta abriu para todo mundo que ainda está conectado.'],
+    ['lira', 'Quando o último sair, Vítrea desliga. E eu sou parte de Vítrea.'],
+    ['voce', 'A porta está aberta. O que eu faço?', ops],
+  ];
+}
+const FINAIS = {
+  sair:  'Você saiu de Vítrea com os outros 311. A Lira acenou até a tela apagar.',
+  ficar: 'Você ficou até o último segundo. Lá fora, toda chuva lembra uma guia de cabelo rosa.',
+  chave: 'Você saiu. Semanas depois, seu celular vibrou: "Oi. Demorei, mas cheguei. L."',
+};
+const NOMES = { lira: 'LIRA', sis: 'SISTEMA', voce: 'VOCÊ', brisa: 'BRISA', radio: 'BRISA (RÁDIO)', tome: 'TOMÉ', sob: 'SOBERANO ZERO' };
+// Cores dos personagens que aparecem em cena durante as conversas
+const PAL_NPC = {
+  lira:  { cabelo: '#ff77a8', casaco: '#ffcd75', mapa: true },
+  brisa: { cabelo: '#73eff7', casaco: '#b13e53' },
+  tome:  { cabelo: '#c0cbdc', casaco: '#5d4037' },
+  sob:   { cabelo: '#ffcd75', casaco: '#f4f4f4' },
+};
 
 // ---------- 2. ÁUDIO ----------
 let actx = null, mudo = false;
@@ -393,7 +463,7 @@ function apagarSave() { try { localStorage.removeItem(CHAVE); } catch (e) {} }
 const CAMPOS = ['nivel', 'xp', 'hpMax', 'atk', 'vel', 'crit', 'roubo', 'def', 'cdHabMax', 'cdEsqMax', 'durEsq', 'multHab'];
 function salvar() {
   const j = {}; for (const c of CAMPOS) j[c] = jog[c];
-  gravarSave({ andar: fase.andar, jog: j, stats });
+  gravarSave({ andar: fase.andar, jog: j, stats, flags });
 }
 try { mudo = localStorage.getItem(CHAVE + '_mudo') === '1'; } catch (e) {}
 
@@ -877,7 +947,7 @@ function atualizarProjeteis(dt) {
 // ---------- 9. FASES, ONDAS E PROGRESSÃO ----------
 const fase = { andar: 1, onda: 0, etapa: 'ondas', t: 0, fila: [], chefe: null };
 let estado = 'titulo';      // titulo | dialogo | jogo | nivel | pausa | fim | vitoria
-const lira = { x: 90, visivel: false };
+const lira = { x: 90, visivel: false, quem: 'lira' };
 
 function iniciarAndar(n, comDialogo) {
   fase.andar = n; fase.onda = 0; fase.etapa = 'ondas'; fase.t = 1; fase.fila = []; fase.chefe = null;
@@ -918,17 +988,22 @@ function atualizarFase(dt) {
   } else if (fase.etapa === 'alerta') {
     fase.t -= dt;
     if (fase.t <= 0) {
-      const c = criarInimigo(CHEFES[fase.andar - 1], limitar(jog.x + (jog.x < ARENA / 2 ? 110 : -110), 30, ARENA - 30));
-      fase.chefe = c; fase.etapa = 'chefe';
-      $('chefeNome').textContent = TIPOS[c.tipo].nome; $('chefeBox').hidden = false;
+      fase.etapa = 'chefe';
+      if (fase.andar === 5) abrirDialogo(DIALOGO_SOBERANO, () => { estado = 'jogo'; $('controles').hidden = false; entrada.repouso(); nascerChefe(); }, 'sob');
+      else nascerChefe();
     }
   } else if (fase.etapa === 'fim') {
     fase.t -= dt;
     if (fase.t <= 0 && !pendentes) {
       if (fase.andar < 5) iniciarAndar(fase.andar + 1, true);
-      else { $('controles').hidden = true; abrirDialogo(DIALOGO_FINAL, vitoria); }
+      else { $('controles').hidden = true; abrirDialogo(dialogoFinal(), vitoria); }
     }
   }
+}
+function nascerChefe() {
+  const c = criarInimigo(CHEFES[fase.andar - 1], limitar(jog.x + (jog.x < ARENA / 2 ? 100 : -100), 30, ARENA - 30));
+  fase.chefe = c;
+  $('chefeNome').textContent = TIPOS[c.tipo].nome; $('chefeBox').hidden = false;
 }
 function chefeDerrotado(c) {
   for (const e of inimigos) if (!e.morto && e !== c) { e.morto = true; estouro(e.x, e.y - e.h / 2, 10, '#ffffff', 80); }
@@ -949,6 +1024,7 @@ function vitoria() {
   estado = 'vitoria'; apagarSave();
   const m = Math.floor(stats.tempo / 60), s = Math.floor(stats.tempo % 60);
   $('estatFinal').innerHTML = `<dt>Tempo</dt><dd>${m}:${String(s).padStart(2, '0')}</dd><dt>Nível</dt><dd>${jog.nivel}</dd><dt>Inimigos derrotados</dt><dd>${stats.abates}</dd><dt>Quedas</dt><dd>${stats.mortes}</dd>`;
+  $('vitTexto').textContent = FINAIS[flags.final] || FINAIS.sair;
   $('hud').hidden = true; mostrarTela('telaVitoria');
 }
 
@@ -1090,18 +1166,20 @@ function desenharJogador() {
   ctx.globalAlpha = 1;
 }
 
-// A Lira: guia holográfica de cabelo rosa, casaco amarelo e um mapa flutuante
+// Personagem em cena durante as conversas (Lira, Brisa, Tomé ou o Soberano), colorido pela paleta
 function desenharLira() {
   if (!lira.visivel) return;
+  const P = PAL_NPC[lira.quem] || PAL_NPC.lira;
   origem(lira.x, CHAO, jog.x < lira.x ? -1 : 1);
   const b = Math.sin(tG * 2.5) > 0 ? 1 : 0;
   ctx.globalAlpha = .85 + Math.sin(tG * 20) * .08;
   R(-4, -5, 3, 5, '#333c57'); R(1, -5, 3, 5, '#333c57');
-  R(-4, -13 - b, 8, 8, '#ffcd75'); R(-1, -12 - b, 2, 7, '#1a1c2c');
-  R(-3, -20 - b, 7, 6, '#ffd9b8'); R(-4, -23 - b, 9, 4, '#ff77a8'); R(-5, -21 - b, 3, 8, '#ff77a8'); R(2, -18 - b, 1, 2, '#1a1c2c');
-  R(-5, -19 - b, 1, 3, '#73eff7');
-  // mapa holográfico
-  R(7, -18 - b * 2, 8, 6, '#73eff7'); ctx.globalAlpha = .9; R(8, -17 - b * 2, 2, 1, '#0b1030'); R(11, -15 - b * 2, 3, 1, '#0b1030'); R(9, -14 - b * 2, 1, 1, '#ff5d8f');
+  R(-4, -13 - b, 8, 8, P.casaco); R(-1, -12 - b, 2, 7, '#1a1c2c');
+  R(-3, -20 - b, 7, 6, '#ffd9b8'); R(-4, -23 - b, 9, 4, P.cabelo); R(-5, -21 - b, 3, 8, P.cabelo); R(2, -18 - b, 1, 2, '#1a1c2c');
+  if (P.mapa) {   // o mapa holográfico da Lira
+    R(-5, -19 - b, 1, 3, '#73eff7');
+    R(7, -18 - b * 2, 8, 6, '#73eff7'); R(8, -17 - b * 2, 2, 1, '#0b1030'); R(11, -15 - b * 2, 3, 1, '#0b1030'); R(9, -14 - b * 2, 1, 1, '#ff5d8f');
+  }
   ctx.globalAlpha = 1;
 }
 
@@ -1308,6 +1386,7 @@ function atualizarHud(dt) {
     const o = fase.etapa === 'ondas' && fase.onda ? ' · onda ' + fase.onda + '/3' : fase.etapa === 'chefe' ? ' · guardião' : '';
     $('andarInfo').textContent = 'Andar ' + fase.andar + '/5 · ' + TEMAS[fase.andar - 1].nome + o;
   });
+  setHud('con', fase.andar, v => { $('conectados').textContent = CONECTADOS[v - 1].toLocaleString('pt-BR') + ' conectados'; });
   if (fase.chefe) setHud('chefe', Math.round(fase.chefe.hp / fase.chefe.hpMax * 200), v => { $('bChefe').style.transform = `scaleX(${Math.max(0, v / 200)})`; });
   if (avisoT > 0) { avisoT -= dt; if (avisoT <= 0) $('aviso').classList.remove('on'); }
 }
@@ -1320,6 +1399,18 @@ function retrato(quem) {
     r(0, 0, 16, 16, '#16205a'); r(3, 1, 10, 5, '#ff77a8'); r(2, 3, 2, 9, '#ff77a8'); r(12, 3, 2, 6, '#ff77a8');
     r(4, 5, 8, 7, '#ffd9b8'); r(6, 8, 1, 2, '#1a1c2c'); r(10, 8, 1, 2, '#1a1c2c'); r(7, 11, 3, 1, '#b13e53');
     r(1, 6, 1, 4, '#73eff7'); r(2, 11, 3, 1, '#73eff7'); r(3, 13, 10, 3, '#ffcd75'); r(7, 13, 2, 3, '#1a1c2c');
+  } else if (quem === 'brisa' || quem === 'radio') {
+    r(0, 0, 16, 16, '#3b0a14'); r(3, 1, 10, 4, '#73eff7'); r(11, 3, 3, 10, '#73eff7'); r(3, 4, 2, 3, '#73eff7');
+    r(4, 5, 8, 7, '#e8b796'); r(6, 8, 1, 2, '#1a1c2c'); r(10, 8, 1, 2, '#1a1c2c'); r(7, 11, 3, 1, '#1a1c2c');
+    r(3, 13, 10, 3, '#b13e53');
+    if (quem === 'radio') for (let y = 1; y < 16; y += 3) r(0, y, 16, 1, '#00000088');
+  } else if (quem === 'tome') {
+    r(0, 0, 16, 16, '#4a1616'); r(3, 2, 10, 3, '#c0cbdc');
+    r(4, 4, 8, 8, '#d9a066'); r(6, 7, 1, 2, '#1a1c2c'); r(10, 7, 1, 2, '#1a1c2c'); r(4, 10, 8, 3, '#c0cbdc'); r(7, 11, 2, 1, '#5d4037');
+    r(3, 13, 10, 3, '#5d4037');
+  } else if (quem === 'sob') {
+    r(0, 0, 16, 16, '#05060c'); r(4, 1, 8, 3, '#ffcd75'); r(4, 0, 1, 1, '#ffcd75'); r(7, 0, 2, 1, '#ffcd75'); r(11, 0, 1, 1, '#ffcd75');
+    r(4, 4, 8, 8, '#c0cbdc'); r(5, 7, 2, 1, '#ff5d8f'); r(9, 7, 2, 1, '#ff5d8f'); r(3, 12, 10, 4, '#f4f4f4'); r(3, 13, 10, 1, '#ff5d8f');
   } else if (quem === 'voce') {
     r(0, 0, 16, 16, '#0d3b32'); r(3, 1, 10, 4, '#3a2a3a'); r(3, 4, 2, 5, '#3a2a3a');
     r(4, 5, 8, 7, '#ffd9b8'); r(6, 8, 1, 2, '#1a1c2c'); r(10, 8, 1, 2, '#1a1c2c'); r(7, 11, 2, 1, '#a05b53');
@@ -1330,25 +1421,51 @@ function retrato(quem) {
     r(7, 6, 2, 4, '#1a1c2c'); r(7, 11, 2, 1, '#1a1c2c');
   }
 }
-function abrirDialogo(falas, aoFim) {
-  estado = 'dialogo'; dlg.falas = falas; dlg.i = 0; dlg.aoFim = aoFim;
+function abrirDialogo(falas, aoFim, quem = 'lira') {
+  estado = 'dialogo'; dlg.falas = falas.slice(); dlg.i = 0; dlg.aoFim = aoFim;
   $('controles').hidden = true; $('dialogo').hidden = false;
-  lira.x = limitar(jog.x + 28, 20, ARENA - 20); lira.visivel = true;
+  let x = jog.x + 30; if (x > ARENA - 20) x = jog.x - 30;
+  lira.x = x; lira.visivel = true; lira.quem = quem;
   mostrarFala();
 }
 function mostrarFala() {
   const f = dlg.falas[dlg.i]; dlg.letras = 0;
-  $('dlgNome').textContent = NOMES[f[0]]; $('dlgTexto').textContent = ''; retrato(f[0]);
+  if (PAL_NPC[f[0]]) lira.quem = f[0];
+  $('dlgNome').textContent = NOMES[f[0]]; $('dlgTexto').textContent = ''; $('dlgOpcoes').innerHTML = ''; retrato(f[0]);
+}
+// Mostra os botões de escolha quando a fala termina de aparecer
+function mostrarOpcoes() {
+  const f = dlg.falas[dlg.i], cx = $('dlgOpcoes');
+  if (!f[2] || cx.childElementCount) return;
+  for (const op of f[2]) {
+    const b = document.createElement('button'); b.className = 'op'; b.textContent = '▸ ' + op.t;
+    b.addEventListener('click', () => {
+      flags[op.flag] = op.valor; som(660, .1, 'square', .04);
+      dlg.falas = dlg.falas.slice(0, dlg.i + 1).concat(op.falas || [], dlg.falas.slice(dlg.i + 1));
+      if (++dlg.i < dlg.falas.length) mostrarFala(); else fecharDialogo();
+    });
+    cx.appendChild(b);
+  }
 }
 function avancarDialogo() {
   if (estado !== 'dialogo') return;
-  const txt = dlg.falas[dlg.i][1];
-  if (dlg.letras < txt.length) { dlg.letras = txt.length; $('dlgTexto').textContent = txt; return; }
+  const f = dlg.falas[dlg.i], txt = f[1];
+  if (dlg.letras < txt.length) { dlg.letras = txt.length; $('dlgTexto').textContent = txt; mostrarOpcoes(); return; }
+  if (f[2]) return;      // fala com escolha: só avança pelos botões
   if (++dlg.i < dlg.falas.length) mostrarFala(); else fecharDialogo();
+}
+// "Pular conversa" nunca pula uma escolha: salta direto para a próxima
+function pularDialogo() {
+  if (estado !== 'dialogo') return;
+  for (let k = dlg.i; k < dlg.falas.length; k++) if (dlg.falas[k][2]) {
+    if (k !== dlg.i) { dlg.i = k; mostrarFala(); }
+    dlg.letras = dlg.falas[k][1].length; $('dlgTexto').textContent = dlg.falas[k][1]; mostrarOpcoes(); return;
+  }
+  fecharDialogo();
 }
 function fecharDialogo() {
   $('dialogo').hidden = true;
-  if (lira.visivel) { for (let i = 0; i < 24; i++) particula(lira.x + rand(-5, 5), CHAO - rand(0, 22), rand(-15, 15), -rand(20, 80), .7, i % 2 ? '#73eff7' : '#ff77a8', 1); lira.visivel = false; }
+  if (lira.visivel) { for (let i = 0; i < 24; i++) particula(lira.x + rand(-5, 5), CHAO - rand(0, 22), rand(-15, 15), -rand(20, 80), .7, i % 2 ? '#73eff7' : (PAL_NPC[lira.quem] || PAL_NPC.lira).cabelo, 1); lira.visivel = false; }
   som(900, .15, 'sine', .04, 1500);
   const f = dlg.aoFim; dlg.falas = null; dlg.aoFim = null; if (f) f();
 }
@@ -1357,11 +1474,11 @@ function atualizarDialogo(dt) {
   const txt = dlg.falas[dlg.i][1];
   if (dlg.letras < txt.length) {
     const antes = dlg.letras | 0; dlg.letras = Math.min(txt.length, dlg.letras + dt * 48);
-    if ((dlg.letras | 0) !== antes) { $('dlgTexto').textContent = txt.slice(0, dlg.letras | 0); if ((dlg.letras | 0) % 3 === 0) som(dlg.falas[dlg.i][0] === 'sis' ? 180 : 620, .02, 'square', .012); }
+    if ((dlg.letras | 0) !== antes) { $('dlgTexto').textContent = txt.slice(0, dlg.letras | 0); if (dlg.letras >= txt.length) mostrarOpcoes(); if ((dlg.letras | 0) % 3 === 0) som(dlg.falas[dlg.i][0] === 'sis' ? 180 : 620, .02, 'square', .012); }
   }
 }
-$('dialogo').addEventListener('pointerdown', e => { iniciarAudio(); if (e.target.id !== 'dlgPular') avancarDialogo(); });
-$('dlgPular').addEventListener('click', fecharDialogo);
+$('dialogo').addEventListener('pointerdown', e => { iniciarAudio(); if (e.target.id !== 'dlgPular' && !e.target.classList.contains('op')) avancarDialogo(); });
+$('dlgPular').addEventListener('click', pularDialogo);
 
 // --- Subida de nível: três cartas sorteadas ---
 function abrirNivel() {
@@ -1407,13 +1524,14 @@ $('btNovo').addEventListener('click', () => {
   const b = $('btNovo');
   // Sem confirm(): se já existe progresso, o botão pede um segundo toque
   if (lerSave() && !b.dataset.confirma) { b.dataset.confirma = '1'; b.textContent = 'APAGAR PROGRESSO E COMEÇAR?'; return; }
-  novoJogador(); stats = { tempo: 0, abates: 0, mortes: 0 };
+  novoJogador(); stats = { tempo: 0, abates: 0, mortes: 0 }; flags = { leu: false, final: 'sair' };
   iniciarAndar(1, true);
 });
 function carregarDoSave() {
   const s = lerSave(); if (!s) return irParaTitulo();
   novoJogador(); for (const c of CAMPOS) if (typeof s.jog[c] === 'number') jog[c] = s.jog[c];
   stats = Object.assign({ tempo: 0, abates: 0, mortes: 0 }, s.stats);
+  flags = Object.assign({ leu: false, final: 'sair' }, s.flags);
   return s;
 }
 $('btContinuar').addEventListener('click', () => { iniciarAudio(); const s = carregarDoSave(); if (s) iniciarAndar(s.andar, true); });
